@@ -26,7 +26,9 @@ import Data.Array.ST (STArray, newArray, readArray, writeArray)
 import Data.Array.IArray (listArray)
 import Data.Array.Unboxed (UArray, (!))
 import Data.List
-
+import Data.List (maximumBy)
+import Data.Ord (comparing)
+import qualified Data.Set as Set
 import Debug.Trace (trace)
 
 
@@ -34,24 +36,24 @@ author :: String
 author = "Aoping Lyu"  -- replace `undefined' with your first and last name
 
 nickname :: String
-nickname = "SudokuOuSama" -- replace `undefined' with a nickname for your solver
+nickname = "SudokuOuSama-DLX" -- replace `undefined' with a nickname for your solver
 
 
-data DNode s = DNode {left, right, up, down, ctl :: STRef s (DNode s),
-                      size :: STRef s Int,
-                      row, col :: Int} | Null
+data DNode s = DNode {left, right, up, down, control :: STRef s (DNode s),
+                      nodeSize :: STRef s Int,
+                      rowIdx, colIdx :: Int} | Null
 
 instance Eq (DNode s) where
-    a == b = row a == row b && col a == col b
+    a == b = rowIdx a == rowIdx b && colIdx a == colIdx b
 
-newDNode l r u d size row col =
-        do l' <- newSTRef l
-           r' <- newSTRef r
-           u' <- newSTRef u
-           d' <- newSTRef d
-           ctl' <- newSTRef Null
-           size' <- newSTRef size
-           return (DNode l' r' u' d' ctl' size' row col)
+newDNode l r u d size row col = do
+    leftRef    <- newSTRef l
+    rightRef   <- newSTRef r
+    upRef      <- newSTRef u
+    downRef    <- newSTRef d
+    controlRef <- newSTRef Null
+    sizeRef    <- newSTRef size
+    return (DNode leftRef rightRef upRef downRef controlRef sizeRef row col)
 
 getAttr :: (DNode s -> STRef s a) -> DNode s -> ST s a
 getAttr dir node = readSTRef (dir node)
@@ -59,121 +61,158 @@ getAttr dir node = readSTRef (dir node)
 setAttr :: (DNode s -> STRef s a) -> DNode s -> a -> ST s ()
 setAttr dir node = writeSTRef (dir node)
 
+-- Unlink and link functions for removing and restoring nodes
+unlink :: (a -> STRef s a) -> (a -> STRef s a) -> a -> ST s ()
+unlink prev next node = do
+    before <- readSTRef (prev node)
+    after  <- readSTRef (next node)
+    writeSTRef (next before) after
+    writeSTRef (prev after) before
+
+relink :: (a -> STRef s a) -> (a -> STRef s a) -> a -> ST s ()
+relink prev next node = do
+    before <- readSTRef (prev node)
+    after  <- readSTRef (next node)
+    writeSTRef (next before) node
+    writeSTRef (prev after) node
+
+link :: (DNode s -> STRef s (DNode s)) -> (DNode s -> STRef s (DNode s)) -> DNode s -> DNode s -> ST s ()
+link prev next a b = do
+    writeSTRef (next a) b
+    writeSTRef (prev b) a
+
+
 buildDLX :: [UArray Int Bool] -> Int -> Int -> ST s (DNode s)
-buildDLX bitmap nrow ncol =
-    do chead <- newArray (0, ncol - 1) Null :: ST s (STArray s Int (DNode s))
-       h <- newDNode Null Null Null Null 0 (-1) (-1)
-       setAttr left h h
-       setAttr right h h
-       setAttr up h h
-       setAttr down h h
-       forM_ [0..ncol-1] $ \j -> do
-           hl <- getAttr left h
-           p <- newDNode hl h Null Null 0 (-1) j
-           setAttr right hl p
-           setAttr left h p
-           setAttr up p p
-           setAttr down p p
-           writeArray chead j p
-       rhead <- newDNode Null Null Null Null 0 0 (-1)
-       forM_ (zip [0..nrow-1] bitmap) $ \(i, row) -> do
-           setAttr left rhead rhead
-           setAttr right rhead rhead
-           forM_ [0..ncol-1] $ \j -> do
-               if row ! j then do
-                    rl <- getAttr left rhead
-                    ct <- readArray chead j
-                    cs <- getAttr size ct
-                    setAttr size ct (cs + 1)
-                    cu <- getAttr up ct
-                    p <- newDNode rl rhead cu ct 0 i j
-                    setAttr right rl p
-                    setAttr left rhead p
-                    setAttr down cu p
-                    setAttr up ct p
-                    setAttr ctl p ct
-               else return ()
-           rl <- getAttr left rhead
-           rr <- getAttr right rhead
-           setAttr right rl rr
-           setAttr left rr rl
-       return h
+buildDLX bitmap nrow ncol = do
+    colHeaders <- newArray (0, ncol - 1) Null :: ST s (STArray s Int (DNode s))
+    rootHeader <- newDNode Null Null Null Null 0 (-1) (-1)
 
+    link left right rootHeader rootHeader
+
+    forM_ [0 .. ncol - 1] $ \j -> do
+        headerLeft <- getAttr left rootHeader
+        colNode <- newDNode headerLeft rootHeader Null Null 0 (-1) j
+        setAttr right headerLeft colNode
+        setAttr left rootHeader colNode
+        link up down colNode colNode
+        writeArray colHeaders j colNode
+
+    rowHeader <- newDNode Null Null Null Null 0 0 (-1)
+    forM_ (zip [0 .. nrow - 1] bitmap) $ \(i, row) -> do
+        setAttr left rowHeader rowHeader
+        setAttr right rowHeader rowHeader
+
+        forM_ [0 .. ncol - 1] $ \j -> do
+            if row ! j then do
+
+                colNode <- readArray colHeaders j
+                leftNode <- getAttr left rowHeader
+                upperNode <- getAttr up colNode
+
+                -- Increment column size
+                modifySTRef (nodeSize colNode) (+1)
+
+                newRowNode <- newDNode leftNode rowHeader upperNode colNode 0 i j
+                setAttr right leftNode newRowNode
+                setAttr left rowHeader newRowNode
+                setAttr down upperNode newRowNode
+                setAttr up colNode newRowNode
+                setAttr control newRowNode colNode
+            else return ()
+
+        leftNode <- getAttr left rowHeader
+        rightNode <- getAttr right rowHeader
+        setAttr right leftNode rightNode
+        setAttr left rightNode leftNode
+
+    return rootHeader
+
+
+
+forEach :: (DNode s -> ST s (DNode s)) -> DNode s -> (DNode s -> ST s ()) -> ST s ()
 forEach step start f = step start >>= loop
-    where loop now = when (now /= start) (f now >> step now >>= loop)
+  where
+    loop current = when (current /= start) (f current >> step current >>= loop)
 
+
+-- Updated setCover function using unlink
 setCover :: DNode s -> ST s ()
-setCover pctl =
-        do cl <- getAttr left pctl
-           cr <- getAttr right pctl
-           setAttr right cl cr
-           setAttr left cr cl
-           forEach (getAttr down) pctl $ \p ->
-             forEach (getAttr right) p $ \q -> do
-                 qu <- getAttr up q
-                 qd <- getAttr down q
-                 qct <- getAttr ctl q
-                 qcs <- getAttr size qct
-                 setAttr down qu qd
-                 setAttr up qd qu
-                 setAttr size qct (qcs - 1)
+setCover controlNode = do
+    -- Unlink the controlNode (column header) from the row
+    unlink left right controlNode
 
+    -- Unlink each node in the column and decrement the size count
+    forEach (getAttr down) controlNode $ \node ->
+        forEach (getAttr right) node $ \neighbor -> do
+            unlink up down neighbor
+            colNode <- getAttr control neighbor
+            currentSize <- getAttr nodeSize colNode
+            setAttr nodeSize colNode (currentSize - 1)
+
+-- Updated setUncover function using relink
 setUncover :: DNode s -> ST s ()
-setUncover pctl =
-        do cl <- getAttr left pctl
-           cr <- getAttr right pctl
-           setAttr right cl pctl
-           setAttr left cr pctl
-           forEach (getAttr up) pctl $ \p ->
-             forEach (getAttr left) p $ \q -> do
-                 qu <- getAttr up q
-                 qd <- getAttr down q
-                 qct <- getAttr ctl q
-                 qcs <- getAttr size qct
-                 setAttr down qu q
-                 setAttr up qd q
-                 setAttr size qct (qcs + 1)
+setUncover controlNode = do
+    -- Relink each node in the column and increment the size count
+    forEach (getAttr up) controlNode $ \node ->
+        forEach (getAttr left) node $ \neighbor -> do
+            colNode <- getAttr control neighbor
+            currentSize <- getAttr nodeSize colNode
+            setAttr nodeSize colNode (currentSize + 1)
+            relink up down neighbor
 
-solve bitmap ncol = 
+    -- Relink the controlNode (column header) into the row
+    relink left right controlNode
+
+
+solve :: [UArray Int Bool] -> Int -> [[Int]]
+solve bitmap numCols = 
     runST $ do
-        dlx <- buildDLX bitmap (length bitmap) ncol
-        solutionsRef <- newSTRef []
-        countRef <- newSTRef 0
-        solve' dlx solutionsRef countRef 0 []
-        readSTRef solutionsRef
-    where
-        solve' head solutionsRef countRef step plan = do
-            hl <- getAttr left head
-            if hl == head then do
-                -- Found a solution
-                modifySTRef solutionsRef (plan:)
-                modifySTRef countRef (+1)
-                count <- readSTRef countRef
-                if count >= 2 then
-                    return ()  -- Stop recursion
-                else
-                    return ()
-            else do
-                -- Continue searching
-                best <- newSTRef (9999, Null)
-                forEach (getAttr right) head $ \p -> do
-                    sp <- getAttr size p
-                    (m, y) <- readSTRef best
-                    when (sp < m)
-                        (writeSTRef best (sp, p))
-                (_, y) <- readSTRef best
-                setCover y
-                forEach (getAttr down) y $ \p -> do
-                    forEach (getAttr right) p $ \q -> do
-                        qctl <- getAttr ctl q
-                        setCover qctl
-                    count <- readSTRef countRef
-                    when (count < 2) $ do
-                        solve' head solutionsRef countRef (step + 1) (row p:plan)
-                    forEach (getAttr left) p $ \q -> do
-                        qctl <- getAttr ctl q
-                        setUncover qctl
-                setUncover y
+        dlx <- buildDLX bitmap (length bitmap) numCols
+        solutions <- newSTRef []
+        solutionCount <- newSTRef 0
+        search dlx solutions solutionCount []
+        readSTRef solutions
+  where
+    search rootHeader solutions countRef plan = do
+        leftmost <- getAttr left rootHeader
+        if leftmost == rootHeader 
+        then do
+            modifySTRef solutions (plan :)
+            modifySTRef countRef (+1)
+            count <- readSTRef countRef
+            when (count >= 2) $ return ()  -- Stop search if we have 2 solutions
+        else do
+            -- Choose the column with the minimum number of nodes
+            (minColSize, selectedCol) <- selectBest rootHeader
+            setCover selectedCol
+
+            -- Try each row in the selected column
+            forEach (getAttr down) selectedCol $ \row -> do
+                coverRow row
+                solutionCount <- readSTRef countRef
+                when (solutionCount < 2) $ search rootHeader solutions countRef (rowIdx row : plan)
+                uncoverRow row
+
+            setUncover selectedCol
+
+    selectBest headNode = do
+        minCol <- newSTRef (maxBound :: Int, Null)
+        forEach (getAttr right) headNode $ \col -> do
+            colSize <- getAttr nodeSize col
+            (minSize, _) <- readSTRef minCol
+            when (colSize < minSize) $ writeSTRef minCol (colSize, col)
+        readSTRef minCol
+
+    coverRow row = forEach (getAttr right) row $ \node -> do
+        controlCol <- getAttr control node
+        setCover controlCol
+
+    uncoverRow row = forEach (getAttr left) row $ \node -> do
+        controlCol <- getAttr control node
+        setUncover controlCol
+   
+
+
 
 existingNumbers :: Board -> Int -> Int -> [Int]
 existingNumbers board x y = nub $ rowNums ++ colNums ++ blockNums
@@ -187,6 +226,20 @@ existingNumbers board x y = nub $ rowNums ++ colNums ++ blockNums
                                    j <- [blockStartY..blockStartY+blockSize-1]]
 
 
+-- Helper function to create the bit vector
+makeBits :: [Int] -> Int -> [Bool]
+makeBits [] n = replicate n False
+makeBits (x:xs) n = replicate x False ++ True : makeBits (map (\t -> t - x - 1) xs) (n - x - 1)
+
+-- Generate bitmaps for all (x, y, d) constraints in allRows
+generateBitmap :: Int -> Int -> Int -> Int -> [(Int, Int, Int)] -> [UArray Int Bool]
+generateBitmap blockN sudokuN secN colN allRows =
+    [ listArray (0, colN - 1) $ 
+        makeBits [ x * blockN + y,                            -- Cell constraint
+                   secN + ((x `div` sudokuN) * sudokuN + y `div` sudokuN) * blockN + d - 1, -- SubGrid constraint
+                   secN * 2 + x * blockN + d - 1,             -- Row constraint
+                   secN * 3 + y * blockN + d - 1 ] colN       -- Column constraint
+    | (x, y, d) <- allRows ]
 
 sudoku :: Board -> ([Board], Solutions)
 sudoku prob = 
@@ -221,14 +274,8 @@ sudoku prob =
         -- 生成可能的数字放置组合
         allRows = trace ("Total rows generated: " ++ show (length fixed + length candidates))
                   (fixed ++ candidates)
-        
-        makeBits [] n = replicate n False
-        makeBits (x:xs) n = replicate x False ++ (True:makeBits (map (\t -> t - x - 1) xs) (n - x - 1))
-        bitmap = [ listArray (0, colN -1) $
-                     makeBits [ x * blockN + y,
-                                secN + ((x `div` sudokuN) * sudokuN + y `div` sudokuN) * blockN + d - 1,
-                                secN * 2 + x * blockN + d - 1,
-                                secN * 3 + y * blockN + d - 1 ] colN | (x, y, d) <- allRows ]
+        bitmap = generateBitmap blockN sudokuN secN colN allRows
+
 
 
 -- numSolutions function definition
