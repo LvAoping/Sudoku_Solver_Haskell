@@ -18,6 +18,20 @@ import qualified Data.Map as Map
 
 -- import Debug.Trace (trace) -- Uncomment for debugging
 
+import TestCases (board0, board1, board2, board3, board4, board5, board6, board7, board10)
+
+import TestBoards (
+    uniques, ambiguouss, invalids,
+    uniqueBoard1, uniqueBoard2, uniqueBoard3, uniqueBoard4, uniqueBoard5,
+    uniqueBoard6, uniqueBoard7, uniqueBoard8, uniqueBoard9,
+    uniqueBoardA, uniqueBoardB, uniqueBoardC,
+    ambiguousBoard1, ambiguousBoard2, ambiguousBoard3, ambiguousBoard4, ambiguousBoard5,
+    ambiguousBoard6, ambiguousBoard7, ambiguousBoard8, ambiguousBoard9,
+    ambiguousBoardA, ambiguousBoardB, ambiguousBoardC,
+    invalidBoard1, invalidBoard2, invalidBoard3, invalidBoard4, invalidBoard5,
+    invalidBoard6, invalidBoard7, invalidBoard8, invalidBoard9,
+    invalidBoardA, invalidBoardB, invalidBoardC)
+
 author :: String
 author = "Aoping Lyu"
 
@@ -454,7 +468,7 @@ numSolutions board =
     in sol
 
 
-{- Uncomment the following code to run the Sudoku solver with ghci
+{- Uncomment the following code to run the Sudoku solver with ghci -}
 
 -- Show instance for Solutions
 instance Show Solutions where
@@ -474,4 +488,3 @@ printBoard :: Board -> IO ()
 printBoard board = do
     mapM_ (putStrLn . unwords . map show) board
     putStrLn "----------------------------------------"
--}
