@@ -2,7 +2,6 @@
 module SudokuSolver(Board, Solutions(..), author, nickname, numSolutions) where
 import Sudoku(Board, Solutions(..))
 
-
 -- /\/\/\ DO NOT MODIFY THE PRECEDING LINES /\/\/\
 
 
@@ -16,18 +15,70 @@ import Data.Tuple (swap)
 import Data.Bifunctor (second)
 import qualified Data.Set as Set
 
+-- import Debug.Trace (trace) -- Uncomment for debugging
+-- import TestBoards (
+--     uniques, ambiguouss, invalids,
+--     uniqueBoard1, uniqueBoard2, uniqueBoard3, uniqueBoard4, uniqueBoard5,
+--     uniqueBoard6, uniqueBoard7, uniqueBoard8, uniqueBoard9,
+--     uniqueBoardA, uniqueBoardB, uniqueBoardC,
+--     ambiguousBoard1, ambiguousBoard2, ambiguousBoard3, ambiguousBoard4, ambiguousBoard5,
+--     ambiguousBoard6, ambiguousBoard7, ambiguousBoard8, ambiguousBoard9,
+--     ambiguousBoardA, ambiguousBoardB, ambiguousBoardC,
+--     invalidBoard1, invalidBoard2, invalidBoard3, invalidBoard4, invalidBoard5,
+--     invalidBoard6, invalidBoard7, invalidBoard8, invalidBoard9,
+--     invalidBoardA, invalidBoardB, invalidBoardC)
 
 
-{- (Remember to provide a brief (about 100-500 words) description of
-   your implementation.)
- -}
+{- 
+  This implementation of the Sudoku solver is based on the backtracking algorithm with constraint propagation.
+  The sudoku problem can be represented as a constraint satisfaction problem (CSP) with the following constraints:
+    - Each cell must contain a value between 1 and n (inclusive).
+    - Each row must contain unique values.
+    - Each column must contain unique values.
+    - Each subgrid must contain unique values.
+  So the common approachs for CSP can be applied to solve the Sudoku problem.
 
+  There are three main search techniques used to enhance the basic backtracking algorithm in the solver: 
+  Minimum Remaining Values (MRV), 
+    - The solver selects the unassigned cell with the fewest possible values to reduce the branching factor.
+    - Selecting the MRV cell first can potentially help to reduce the search space and improve the efficiency of the solver.
+  
+  Least Constraining Value (LCV), 
+   - LCV heuristic is implemented after selecting the MRV cell to order the possible values based on the number of constraints imposed on neighboring cells.
+   - The cell with the least constraining value tends to be selected first to minimize the chance of conflicts and reduce backtracking.
+  
+  and Arc Consistency (AC-3).
+    - AC-3 stands for Arc Consistency Algorithm #3, which is used to enforce local consistency in the constraint network.
+    - A CSP is arc consistent if, for every value of a variable, there exists some consistent value in all its neighboring variables.
+    - The solver uses AC-3 to enforce arc consistency on the possible values of each cell by checking the neighboring cells, reducing the search space.
+
+  Backtracking:
+    - First, the solver initializes the PossibleValues map for all empty cells in the board.
+    - Then, it selects the MRV cell and orders the possible values using the LCV heuristic.
+    - The solver tries each possible value for the MRV cell and recursively solves the Sudoku puzzle.
+    - AC-3 is used to enforce arc consistency on the possible values after each assignment.
+    - If a conflict is found, the solver backtracks and tries the next possible value.
+    - The solver continues until a valid solution is found or all possible values are exhausted.
+
+  The solver counts the number of solutions for a given Sudoku board using backtracking and constraint propagation.
+  The solver can determine if a Sudoku board has no solution, a unique solution, or multiple solutions.
+-}
+
+{- Acknowledgement:
+  - The algorithm implementation of the Sudoku solver is inspired by the following resources:
+    - https://en.wikipedia.org/wiki/Sudoku_solving_algorithms
+    - https://en.wikipedia.org/wiki/AC-3_algorithm
+    - https://steven.codes/blog/constraint-satisfaction-with-sudoku/
+  - During the coding and writing process, following resources have been used:
+    - GitHub copilot has been utlized to provide suggestions and improve the code quality, mainly for writing the explaination and comments.   
+    - LLM has been used to consult and discuss the haskell syntax and logic, the algorithm and the implementation. No direct code has been copied from LLM output.
+-}
 
 author :: String
-author = "Aoping Lyu"  -- replace `undefined' with your first and last name
+author = "Aoping Lyu" 
 
 nickname :: String
-nickname = "SudokuOuSama-Backtracking" -- replace `undefined' with a nickname for your solver
+nickname = "SudokuOuSama-1"
 
 
 
@@ -356,3 +407,17 @@ numSolutions board =
 --     show NoSolution = "NoSolution"
 --     show UniqueSolution = "UniqueSolution"
 --     show MultipleSolutions = "MultipleSolutions"
+
+-- main = do
+--     let boards = [uniqueBoard1, uniqueBoard2, uniqueBoard3, uniqueBoard4, uniqueBoard5,
+--                   uniqueBoard6, uniqueBoard7, uniqueBoard8, uniqueBoard9,
+--                   uniqueBoardA, uniqueBoardB, uniqueBoardC,
+--                   ambiguousBoard1, ambiguousBoard2, ambiguousBoard3, ambiguousBoard4, ambiguousBoard5,
+--                   ambiguousBoard6, ambiguousBoard7, ambiguousBoard8, ambiguousBoard9,
+--                   ambiguousBoardA, ambiguousBoardB, ambiguousBoardC,
+--                   invalidBoard1, invalidBoard2, invalidBoard3, invalidBoard4, invalidBoard5,
+--                   invalidBoard6, invalidBoard7, invalidBoard8, invalidBoard9,
+--                   invalidBoardA, invalidBoardB, invalidBoardC]
+--     let results = map numSolutions boards
+--     mapM_ print results
+--     return ()
