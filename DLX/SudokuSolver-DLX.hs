@@ -187,22 +187,17 @@ buildDLX bitmap nrow ncol = do
         setAttr right rowHeader rowHeader
 
         forM_ [0 .. ncol - 1] $ \j -> do
-            if row ! j then do
-
+            when (row ! j) $ do
                 colNode <- readArray colHeaders j
                 leftNode <- getAttr left rowHeader
                 upperNode <- getAttr up colNode
-
-                -- Increment column size
-                modifySTRef (nodeSize colNode) (+1)
-
+                modifySTRef (nodeSize colNode) (+1) -- Increment column size
                 newRowNode <- newDNode leftNode rowHeader upperNode colNode 0 i j
                 setAttr right leftNode newRowNode
                 setAttr left rowHeader newRowNode
                 setAttr down upperNode newRowNode
                 setAttr up colNode newRowNode
                 setAttr control newRowNode colNode
-            else return ()
 
         leftNode <- getAttr left rowHeader
         rightNode <- getAttr right rowHeader
@@ -452,7 +447,7 @@ applyNakedSubsetsUnit n cand unit = foldl eliminateCandidates cand nakedSubsets
     eliminateCandidates cand (subsetCands, subsetPositions) = foldl eliminateFromCell cand otherPositions
       where
         otherPositions = unit \\ subsetPositions
-        eliminateFromCell c pos = Map.adjust (\cs -> cs \\ subsetCands) pos c
+        eliminateFromCell c pos = Map.adjust (\\ subsetCands) pos c
 
 {- applyHiddenSubsets ns candidates
    Applies hidden subsets strategy for subset sizes in 'ns' to refine candidates.
@@ -485,7 +480,7 @@ applyHiddenSubsetsUnit n cand unit = foldl eliminateCandidates cand hiddenSubset
     -- Eliminate other candidates from these positions
     eliminateCandidates cand (subsetCands, subsetPositions) = foldl eliminateFromCell cand subsetPositions
       where
-        eliminateFromCell c pos = Map.adjust (\cs -> cs `intersect` subsetCands) pos c
+        eliminateFromCell c pos = Map.adjust (`intersect` subsetCands) pos c
 
 
 {- refineCandidates candidates
