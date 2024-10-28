@@ -39,6 +39,12 @@ nickname :: String
 nickname = "SudokuOuSama-DLX"
 
 
+{- (Remember to provide a brief (about 100-500 words) description of
+   your implementation.)
+ -}
+
+
+
 {- DNode s
    Represents a node in the Dancing Links data structure for the DLX algorithm.
    Each node has pointers to its left, right, up, down neighbors, and a control node.
